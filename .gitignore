@@ -269,3 +269,6 @@ _site/
 appsettings.development.json
 *.development.pubxml
 *.original
+Samples/V1.0Samples/AksSamples/teams-recording-bot/scripts/config.ini
+Samples/V1.0Samples/AksSamples/teams-recording-bot/scripts/config.sh
+Samples/V1.0Samples/AksSamples/teams-recording-bot/src/RecordingBot.Console/.env
