@@ -19,6 +19,7 @@ using Microsoft.Owin.Hosting;
 using RecordingBot.Services.Contract;
 using RecordingBot.Services.Http;
 using System;
+using System.Collections.Generic;
 
 namespace RecordingBot.Services.ServiceSetup
 {
@@ -118,13 +119,25 @@ namespace RecordingBot.Services.ServiceSetup
 
                 var callStartOptions = new StartOptions();
 
-                foreach (var url in ((AzureSettings)_settings).CallControlListeningUrls)
-                {
-                    callStartOptions.Urls.Add(url);
-                    _logger.Info("Listening on: {url}", url);
-                }
+				//foreach (var url in ((AzureSettings)_settings).CallControlListeningUrls)
+				//{
+				//	callStartOptions.Urls.Add(url);
+				//	_logger.Info("Listening on: {url}", url);
+				//}
 
-                _callHttpServer = WebApp.Start(
+				//List<string> urls = new List<string>
+				//{
+				//	"https://localhost:9441",
+				//	"https://alextestgraph.ngrok.io"
+				//};
+				//foreach (string url in urls)
+				//{
+				//	callStartOptions.Urls.Add(url);
+				//}
+
+				callStartOptions.Port = 9441;
+
+				_callHttpServer = WebApp.Start(
                     callStartOptions,
                     (appBuilder) =>
                     {

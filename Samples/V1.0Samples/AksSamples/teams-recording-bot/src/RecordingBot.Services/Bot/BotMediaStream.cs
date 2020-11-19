@@ -43,10 +43,14 @@ namespace RecordingBot.Services.Bot
         /// The audio socket
         /// </summary>
         private readonly IAudioSocket _audioSocket;
-        /// <summary>
-        /// The media stream
-        /// </summary>
-        private readonly IMediaStream _mediaStream;
+		/// <summary>
+		/// The media stream
+		/// </summary>
+		private readonly IVideoSocket _videoSocket;
+		/// <summary>
+		/// The video socket
+		/// </summary>
+		private readonly IMediaStream _mediaStream;
         /// <summary>
         /// The event publisher
         /// </summary>
@@ -103,6 +107,13 @@ namespace RecordingBot.Services.Bot
             }
 
             this._audioSocket.AudioMediaReceived += this.OnAudioMediaReceived;
+
+			this._videoSocket = mediaSession.VideoSocket;
+			if (this._videoSocket != null)
+			{
+				this._videoSocket.VideoMediaReceived += this.OnVideoMediaReceived;
+				this._videoSocket.VideoReceiveStatusChanged += this.OnVideoReceiveStatusChanged;
+			}
         }
 
         /// <summary>
@@ -167,7 +178,33 @@ namespace RecordingBot.Services.Bot
             {
                 e.Buffer.Dispose();
             }
-
         }
-    }
+
+		private async void OnVideoMediaReceived(object sender, VideoMediaReceivedEventArgs e)
+		{
+			//try
+			//{
+			//	await _mediaStream.App
+			//}
+			//catch (Exception ex)
+			//{
+			//	this.GraphLogger.Error(ex);
+			//}
+			//finally
+			//{
+			//	e.Buffer.Dispose();
+			//}
+
+			Console.WriteLine("Got video");
+		}
+
+		private async void OnVideoReceiveStatusChanged(object send, VideoReceiveStatusChangedEventArgs e)
+		{
+			if (e.MediaReceiveStatus == MediaReceiveStatus.Active)
+			{
+				this._videoSocket.Subscribe(VideoResolution.HD1080p);
+			}
+		}
+
+	}
 }

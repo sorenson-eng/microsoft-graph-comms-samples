@@ -84,12 +84,7 @@ namespace RecordingBot.Services.Media
             {
                 foreach (var s in data.SerializableUnmixedAudioBuffers)
                 {
-                    if (string.IsNullOrWhiteSpace(s.AdId) || string.IsNullOrWhiteSpace(s.DisplayName))
-                    {
-                        continue;
-                    }
-
-                    var id = s.AdId;
+					string id = s.ActiveSpeakerId.ToString();
 
                     var writer = _writers.ContainsKey(id) ? _writers[id] : InitialiseWavFileWriter(path, id);
 
