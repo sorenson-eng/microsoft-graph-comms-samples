@@ -52,6 +52,10 @@ namespace RecordingBot.Services.Http.Controllers
         /// </summary>
         private readonly IEventPublisher _eventPublisher;
 
+        /// <summary>
+        /// Gets the sample log observer.
+        /// </summary>
+        private SampleObserver Observer => AppHost.AppHostInstance.Observer;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="DemoController" /> class.
@@ -63,6 +67,50 @@ namespace RecordingBot.Services.Http.Controllers
             _eventPublisher = AppHost.AppHostInstance.Resolve<IEventPublisher>();
             _botService = AppHost.AppHostInstance.Resolve<IBotService>();
             _settings = AppHost.AppHostInstance.Resolve<IOptions<AzureSettings>>().Value;
+        }
+
+        /// <summary>
+        /// The GET logs.
+        /// </summary>
+        /// <param name="skip">The skip.</param>
+        /// <param name="take">The take.</param>
+        /// <returns>
+        /// The <see cref="Task" />.
+        /// </returns>
+        [HttpGet]
+        [Route(HttpRouteConstants.Logs + "/")]
+        public HttpResponseMessage OnGetLogs(
+            int skip = 0,
+            int take = 1000)
+        {
+            var logs = this.Observer.GetLogs(skip, take);
+
+            var response = this.Request.CreateResponse(HttpStatusCode.OK);
+            response.Content = new StringContent(logs, Encoding.UTF8, "text/plain");
+            return response;
+        }
+
+        /// <summary>
+        /// The GET logs.
+        /// </summary>
+        /// <param name="filter">The filter.</param>
+        /// <param name="skip">The skip.</param>
+        /// <param name="take">The take.</param>
+        /// <returns>
+        /// The <see cref="Task" />.
+        /// </returns>
+        [HttpGet]
+        [Route(HttpRouteConstants.Logs + "/{filter}")]
+        public HttpResponseMessage OnGetLogs(
+            string filter,
+            int skip = 0,
+            int take = 1000)
+        {
+            var logs = this.Observer.GetLogs(filter, skip, take);
+
+            var response = this.Request.CreateResponse(HttpStatusCode.OK);
+            response.Content = new StringContent(logs, Encoding.UTF8, "text/plain");
+            return response;
         }
 
         /// <summary>
@@ -116,7 +164,7 @@ namespace RecordingBot.Services.Http.Controllers
             var message = $"Ending call {callLegId}";
             _logger.Info(message);
             _eventPublisher.Publish("EndingCall", message);
-            
+
             try
             {
                 await _botService.EndCallByCallLegIdAsync(callLegId).ConfigureAwait(false);

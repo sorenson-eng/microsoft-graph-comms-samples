@@ -63,6 +63,11 @@ namespace RecordingBot.Services.ServiceSetup
         private IGraphLogger _logger;
 
         /// <summary>
+        /// Gets the sample log observer.
+        /// </summary>
+        public SampleObserver Observer { get; private set; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="AppHost" /> class.
 
         /// </summary>
@@ -93,6 +98,7 @@ namespace RecordingBot.Services.ServiceSetup
             ServiceProvider = ServiceCollection.BuildServiceProvider();
 
             _logger = Resolve<IGraphLogger>();
+            this.Observer = new SampleObserver(_logger);
 
             try
             {
@@ -119,25 +125,25 @@ namespace RecordingBot.Services.ServiceSetup
 
                 var callStartOptions = new StartOptions();
 
-				//foreach (var url in ((AzureSettings)_settings).CallControlListeningUrls)
-				//{
-				//	callStartOptions.Urls.Add(url);
-				//	_logger.Info("Listening on: {url}", url);
-				//}
+                //foreach (var url in ((AzureSettings)_settings).CallControlListeningUrls)
+                //{
+                //	callStartOptions.Urls.Add(url);
+                //	_logger.Info("Listening on: {url}", url);
+                //}
 
-				//List<string> urls = new List<string>
-				//{
-				//	"https://localhost:9441",
-				//	"https://alextestgraph.ngrok.io"
-				//};
-				//foreach (string url in urls)
-				//{
-				//	callStartOptions.Urls.Add(url);
-				//}
+                //List<string> urls = new List<string>
+                //{
+                //	"https://localhost:9441",
+                //	"https://alextestgraph.ngrok.io"
+                //};
+                //foreach (string url in urls)
+                //{
+                //	callStartOptions.Urls.Add(url);
+                //}
 
-				callStartOptions.Port = 9441;
+                callStartOptions.Port = 9441;
 
-				_callHttpServer = WebApp.Start(
+                _callHttpServer = WebApp.Start(
                     callStartOptions,
                     (appBuilder) =>
                     {
