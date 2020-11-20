@@ -23,6 +23,7 @@ using RecordingBot.Services.Contract;
 using RecordingBot.Services.Media;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 
@@ -61,11 +62,17 @@ namespace RecordingBot.Services.Bot
         /// </summary>
         private readonly string _callId;
 
-        /// <summary>
-        /// Return the last read 'audio quality of experience data' in a serializable structure
-        /// </summary>
-        /// <value>The audio quality of experience data.</value>
-        public SerializableAudioQualityOfExperienceData AudioQualityOfExperienceData { get; private set; }
+		private readonly IVideoSocket mainVideoSocket;
+		private readonly IVideoSocket vbssSocket;
+		private readonly List<IVideoSocket> videoSockets;
+		private readonly IGraphLogger logger;
+		private readonly ILocalMediaSession mediaSession;
+
+		/// <summary>
+		/// Return the last read 'audio quality of experience data' in a serializable structure
+		/// </summary>
+		/// <value>The audio quality of experience data.</value>
+		public SerializableAudioQualityOfExperienceData AudioQualityOfExperienceData { get; private set; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="BotMediaStream" /> class.
@@ -99,6 +106,9 @@ namespace RecordingBot.Services.Bot
                 mediaSession.MediaSessionId.ToString()
             );
 
+			this.logger = logger;
+			this.mediaSession = mediaSession;
+
             // Subscribe to the audio media.
             this._audioSocket = mediaSession.AudioSocket;
             if (this._audioSocket == null)
@@ -108,13 +118,21 @@ namespace RecordingBot.Services.Bot
 
             this._audioSocket.AudioMediaReceived += this.OnAudioMediaReceived;
 
-			this._videoSocket = mediaSession.VideoSocket;
-			if (this._videoSocket != null)
+			this.mainVideoSocket = mediaSession.VideoSockets?.FirstOrDefault();
+			if (this.mainVideoSocket != null)
 			{
-				this._videoSocket.VideoMediaReceived += this.OnVideoMediaReceived;
-				this._videoSocket.VideoReceiveStatusChanged += this.OnVideoReceiveStatusChanged;
+				this.mainVideoSocket.VideoSendStatusChanged += this.OnVideoSendStatusChanged;
+				this.mainVideoSocket.VideoKeyFrameNeeded += this.OnVideoKeyFrameNeeded;
 			}
-        }
+
+			this.videoSockets = this.mediaSession.VideoSockets?.ToList();
+
+			this.vbssSocket = this.mediaSession.VbssSocket;
+			//if (this.vbssSocket != null)
+			//{
+			//	this.vbssSocket.VideoSendStatusChanged += this.OnVbssSocketSendStatusChanged;
+			//}
+		}
 
         /// <summary>
         /// Gets the participants.
@@ -180,31 +198,150 @@ namespace RecordingBot.Services.Bot
             }
         }
 
-		private async void OnVideoMediaReceived(object sender, VideoMediaReceivedEventArgs e)
+		/// <summary>
+		/// Callback for informational updates from the media plaform about video status changes.
+		/// Once the Status becomes active, then video can be sent.
+		/// </summary>
+		/// <param name="sender">The video socket.</param>
+		/// <param name="e">Event arguments.</param>
+		private void OnVideoSendStatusChanged(object sender, VideoSendStatusChangedEventArgs e)
 		{
-			//try
-			//{
-			//	await _mediaStream.App
-			//}
-			//catch (Exception ex)
-			//{
-			//	this.GraphLogger.Error(ex);
-			//}
-			//finally
-			//{
-			//	e.Buffer.Dispose();
-			//}
+			this.logger.Info($"[VideoSendStatusChangedEventArgs(MediaSendStatus=<{e.MediaSendStatus}>]");
 
-			Console.WriteLine("Got video");
-		}
-
-		private async void OnVideoReceiveStatusChanged(object send, VideoReceiveStatusChangedEventArgs e)
-		{
-			if (e.MediaReceiveStatus == MediaReceiveStatus.Active)
+			if (e.MediaSendStatus == MediaSendStatus.Active)
 			{
-				this._videoSocket.Subscribe(VideoResolution.HD1080p);
+				this.logger.Info($"[VideoSendStatusChangedEventArgs(MediaSendStatus=<{e.MediaSendStatus}>;PreferredVideoSourceFormat=<{string.Join(";", e.PreferredEncodedVideoSourceFormats.ToList())}>]");
+
+				//var previousSupportedFormats = (this.videoKnownSupportedFormats != null && this.videoKnownSupportedFormats.Any()) ? this.videoKnownSupportedFormats :
+				//   new List<VideoFormat>();
+				//this.videoKnownSupportedFormats = e.PreferredEncodedVideoSourceFormats.ToList();
+
+				// when this is false it means that we have received a new event with different videoFormats
+				// the behavior for this bot is to clean up the previous enqueued media and push the new formats,
+				// starting from beginning
+				//if (!this.videoSendStatusActive.TrySetResult(true))
+				//{
+				//	if (this.videoKnownSupportedFormats != null && this.videoKnownSupportedFormats.Any() &&
+
+				//		// here it means we got a new video fromat so we need to restart the player
+				//		this.videoKnownSupportedFormats.Select(x => x.GetId()).Except(previousSupportedFormats.Select(y => y.GetId())).Any())
+				//	{
+				//		// we restart the player
+				//		this.audioVideoFramePlayer?.ClearAsync().ForgetAndLogExceptionAsync(this.logger);
+
+				//		this.logger.Info($"[VideoSendStatusChangedEventArgs(MediaSendStatus=<{e.MediaSendStatus}> enqueuing new formats: {string.Join(";", this.videoKnownSupportedFormats)}]");
+
+				//		// Create the AV buffers
+				//		var currentTick = DateTime.Now.Ticks;
+				//		this.CreateAVBuffers(currentTick, replayed: false);
+
+				//		this.audioVideoFramePlayer?.EnqueueBuffersAsync(this.audioMediaBuffers, this.videoMediaBuffers).ForgetAndLogExceptionAsync(this.logger);
+				//	}
+				//}
+			}
+			else if (e.MediaSendStatus == MediaSendStatus.Inactive)
+			{
+				//if (this.videoSendStatusActive.Task.IsCompleted && this.audioVideoFramePlayer != null)
+				//{
+				//	this.audioVideoFramePlayer?.ClearAsync().ForgetAndLogExceptionAsync(this.logger);
+				//}
 			}
 		}
 
+		/// <summary>
+		/// If the application has configured the VideoSocket to receive encoded media, this
+		/// event is raised each time a key frame is needed. Events are serialized, so only
+		/// one event at a time is raised to the app.
+		/// </summary>
+		/// <param name="sender">Video socket.</param>
+		/// <param name="e">Event args specifying the socket id, media type and video formats for which key frame is being requested.</param>
+		private void OnVideoKeyFrameNeeded(object sender, VideoKeyFrameNeededEventArgs e)
+		{
+			this.logger.Info($"[VideoKeyFrameNeededEventArgs(MediaType=<{{e.MediaType}}>;SocketId=<{{e.SocketId}}>" +
+							 $"VideoFormats=<{string.Join(";", e.VideoFormats.ToList())}>] calling RequestKeyFrame on the videoSocket");
+		}
+
+		/// <summary>
+		/// Subscription for video and vbss.
+		/// </summary>
+		/// <param name="mediaType">vbss or video.</param>
+		/// <param name="mediaSourceId">The video source Id.</param>
+		/// <param name="videoResolution">The preferred video resolution.</param>
+		/// <param name="socketId">Socket id requesting the video. For vbss it is always 0.</param>
+		public void Subscribe(MediaType mediaType, uint mediaSourceId, VideoResolution videoResolution, uint socketId = 0)
+		{
+			try
+			{
+				this.ValidateSubscriptionMediaType(mediaType);
+
+				this.logger.Info($"Subscribing to the video source: {mediaSourceId} on socket: {socketId} with the preferred resolution: {videoResolution} and mediaType: {mediaType}");
+				if (mediaType == MediaType.Vbss)
+				{
+					if (this.vbssSocket == null)
+					{
+						this.logger.Warn($"vbss socket not initialized");
+					}
+					else
+					{
+						this.vbssSocket.Subscribe(videoResolution, mediaSourceId);
+					}
+				}
+				else if (mediaType == MediaType.Video)
+				{
+					if (this.videoSockets == null)
+					{
+						this.logger.Warn($"video sockets were not created");
+					}
+					else
+					{
+						this.videoSockets[(int)socketId].Subscribe(videoResolution, mediaSourceId);
+					}
+				}
+			}
+			catch (Exception ex)
+			{
+				this.logger.Error(ex, $"Video Subscription failed for the socket: {socketId} and MediaSourceId: {mediaSourceId} with exception");
+			}
+		}
+
+		/// <summary>
+		/// Unsubscribe to video.
+		/// </summary>
+		/// <param name="mediaType">vbss or video.</param>
+		/// <param name="socketId">Socket id. For vbss it is always 0.</param>
+		public void Unsubscribe(MediaType mediaType, uint socketId = 0)
+		{
+			try
+			{
+				this.ValidateSubscriptionMediaType(mediaType);
+
+				this.logger.Info($"Unsubscribing to video for the socket: {socketId} and mediaType: {mediaType}");
+
+				if (mediaType == MediaType.Vbss)
+				{
+					this.vbssSocket?.Unsubscribe();
+				}
+				else if (mediaType == MediaType.Video)
+				{
+					this.videoSockets[(int)socketId]?.Unsubscribe();
+				}
+			}
+			catch (Exception ex)
+			{
+				this.logger.Error(ex, $"Unsubscribing to video failed for the socket: {socketId} with exception");
+			}
+		}
+
+		/// <summary>
+		/// Ensure media type is video or VBSS.
+		/// </summary>
+		/// <param name="mediaType">Media type to validate.</param>
+		private void ValidateSubscriptionMediaType(MediaType mediaType)
+		{
+			if (mediaType != MediaType.Vbss && mediaType != MediaType.Video)
+			{
+				throw new ArgumentOutOfRangeException($"Invalid mediaType: {mediaType}");
+			}
+		}
 	}
 }
