@@ -52,7 +52,6 @@ namespace RecordingBot.Services.Http.Controllers
 
         /// <summary>
         /// Initializes a new instance of the <see cref="JoinCallController" /> class.
-
         /// </summary>
         public JoinCallController()
         {
@@ -64,7 +63,6 @@ namespace RecordingBot.Services.Http.Controllers
 
         /// <summary>
         /// Initializes a new instance of the <see cref="JoinCallController" /> class.
-
         /// </summary>
         /// <param name="logger">The logger.</param>
         /// <param name="eventPublisher">The event publisher.</param>
@@ -98,7 +96,7 @@ namespace RecordingBot.Services.Http.Controllers
                 {
                     Call = callUri,
                     CallId = call.Id,
-                    ScenarioId = call.ScenarioId
+                    ScenarioId = call.ScenarioId,
                 };
 
                 var serializer = new CommsSerializer(pretty: true);

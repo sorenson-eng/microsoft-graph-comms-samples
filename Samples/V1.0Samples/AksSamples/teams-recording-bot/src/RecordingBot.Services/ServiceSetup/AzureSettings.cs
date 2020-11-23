@@ -197,7 +197,7 @@ namespace RecordingBot.Services.ServiceSetup
             }
 
             // Create structured config objects for service.
-            this.CallControlBaseUrl = new Uri($"https://{this.ServiceCname}/{podNumber}/{HttpRouteConstants.CallSignalingRoutePrefix}/{HttpRouteConstants.OnNotificationRequestRoute}");
+            this.CallControlBaseUrl = new Uri($"https://{this.ServiceCname}/{HttpRouteConstants.CallSignalingRoutePrefix}/{HttpRouteConstants.OnNotificationRequestRoute}");
 
             controlListenUris.Add($"https://{baseDomain}:{CallSignalingPort}/");
             controlListenUris.Add($"https://{baseDomain}:{CallSignalingPort}/{podNumber}/");
