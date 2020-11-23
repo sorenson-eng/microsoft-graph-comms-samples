@@ -352,8 +352,8 @@ namespace RecordingBot.Services.Bot
             {
                 _capture?.Append(args);
             }
-            updateParticipants(args.AddedResources);
-            updateParticipants(args.RemovedResources, false);
+            UpdateParticipants(args.AddedResources);
+            UpdateParticipants(args.RemovedResources, false);
 
             foreach (var participant in args.AddedResources)
             {
@@ -399,7 +399,7 @@ namespace RecordingBot.Services.Bot
         /// <param name="participantId">The participant identifier.</param>
         /// <param name="participantDisplayName">Display name of the participant.</param>
         /// <returns>System.String.</returns>
-        private string createParticipantUpdateJson(string participantId, string participantDisplayName = "")
+        private string CreateParticipantUpdateJson(string participantId, string participantDisplayName = "")
         {
             if (participantDisplayName.Length == 0)
                 return "{" + String.Format($"\"Id\": \"{participantId}\"") + "}";
@@ -408,14 +408,14 @@ namespace RecordingBot.Services.Bot
         }
 
         /// <summary>
-        /// Updates the participant.
+        /// Helper for UpdateParticipants
         /// </summary>
         /// <param name="participants">The participants.</param>
         /// <param name="participant">The participant.</param>
         /// <param name="added">if set to <c>true</c> [added].</param>
         /// <param name="participantDisplayName">Display name of the participant.</param>
         /// <returns>System.String.</returns>
-        private string updateParticipant(List<IParticipant> participants, IParticipant participant, bool added, string participantDisplayName = "")
+        private string UpdateParticipant(List<IParticipant> participants, IParticipant participant, bool added, string participantDisplayName = "")
         {
             if (added)
             {
@@ -429,7 +429,7 @@ namespace RecordingBot.Services.Bot
                 participants.Remove(participant);
             }
                 
-            return createParticipantUpdateJson(participant.Id, participantDisplayName);
+            return CreateParticipantUpdateJson(participant.Id, participantDisplayName);
         }
 
         /// <summary>
@@ -437,7 +437,7 @@ namespace RecordingBot.Services.Bot
         /// </summary>
         /// <param name="eventArgs">The event arguments.</param>
         /// <param name="added">if set to <c>true</c> [added].</param>
-        private void updateParticipants(ICollection<IParticipant> eventArgs, bool added = true)
+        private void UpdateParticipants(ICollection<IParticipant> eventArgs, bool added = true)
         {
             foreach (var participant in eventArgs)
             {
@@ -449,13 +449,13 @@ namespace RecordingBot.Services.Bot
 
                 if (participantDetails != null)
                 {
-                    json = updateParticipant(this.BotMediaStream.participants, participant, added, participantDetails.DisplayName);
+                    json = UpdateParticipant(this.BotMediaStream.participants, participant, added, participantDetails.DisplayName);
                 }
                 else if (participant.Resource.Info.Identity.AdditionalData?.Count > 0)
                 {
                     if (CheckParticipantIsUsable(participant))
                     {
-                        json = updateParticipant(this.BotMediaStream.participants, participant, added);
+                        json = UpdateParticipant(this.BotMediaStream.participants, participant, added);
                     }
                 }
 

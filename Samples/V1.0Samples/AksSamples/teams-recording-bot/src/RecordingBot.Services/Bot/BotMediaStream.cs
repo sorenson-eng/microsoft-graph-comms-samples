@@ -21,6 +21,7 @@ using Microsoft.Skype.Bots.Media;
 using Microsoft.Skype.Internal.Media.Services.Common;
 using RecordingBot.Services.Contract;
 using RecordingBot.Services.Media;
+using RecordingBot.Services.Util;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -65,6 +66,21 @@ namespace RecordingBot.Services.Bot
         private readonly List<IVideoSocket> videoSockets;
         private readonly IGraphLogger logger;
         private readonly ILocalMediaSession mediaSession;
+        private List<VideoFormat> vbssKnownSupportedFormats;
+        private AudioVideoFramePlayer vbssFramePlayer;
+        private List<VideoMediaBuffer> vbssMediaBuffers = new List<VideoMediaBuffer>();
+        private AudioVideoFramePlayerSettings audioVideoFramePlayerSettings;
+        private int shutdown;
+
+        private List<VideoFormat> videoKnownSupportedFormats;
+        private List<AudioMediaBuffer> audioMediaBuffers = new List<AudioMediaBuffer>();
+        private AudioVideoFramePlayer audioVideoFramePlayer;
+        private readonly TaskCompletionSource<bool> videoSendStatusActive;
+        private List<VideoMediaBuffer> videoMediaBuffers = new List<VideoMediaBuffer>();
+        private readonly object mLock = new object();
+        private long audioTick;
+        private long videoTick;
+        private long mediaTick;
 
         /// <summary>
         /// Return the last read 'audio quality of experience data' in a serializable structure
@@ -126,10 +142,10 @@ namespace RecordingBot.Services.Bot
             this.videoSockets = this.mediaSession.VideoSockets?.ToList();
 
             this.vbssSocket = this.mediaSession.VbssSocket;
-            //if (this.vbssSocket != null)
-            //{
-            //	this.vbssSocket.VideoSendStatusChanged += this.OnVbssSocketSendStatusChanged;
-            //}
+            if (this.vbssSocket != null)
+            {
+                this.vbssSocket.VideoSendStatusChanged += this.OnVbssSocketSendStatusChanged;
+            }
         }
 
         /// <summary>
@@ -210,39 +226,39 @@ namespace RecordingBot.Services.Bot
             {
                 this.logger.Info($"[VideoSendStatusChangedEventArgs(MediaSendStatus=<{e.MediaSendStatus}>;PreferredVideoSourceFormat=<{string.Join(";", e.PreferredEncodedVideoSourceFormats.ToList())}>]");
 
-                //var previousSupportedFormats = (this.videoKnownSupportedFormats != null && this.videoKnownSupportedFormats.Any()) ? this.videoKnownSupportedFormats :
-                //   new List<VideoFormat>();
-                //this.videoKnownSupportedFormats = e.PreferredEncodedVideoSourceFormats.ToList();
+                var previousSupportedFormats = (this.videoKnownSupportedFormats != null && this.videoKnownSupportedFormats.Any()) ? this.videoKnownSupportedFormats :
+                new List<VideoFormat>();
+                this.videoKnownSupportedFormats = e.PreferredEncodedVideoSourceFormats.ToList();
 
                 // when this is false it means that we have received a new event with different videoFormats
                 // the behavior for this bot is to clean up the previous enqueued media and push the new formats,
                 // starting from beginning
-                //if (!this.videoSendStatusActive.TrySetResult(true))
-                //{
-                //	if (this.videoKnownSupportedFormats != null && this.videoKnownSupportedFormats.Any() &&
+                if (!this.videoSendStatusActive.TrySetResult(true))
+                {
+                    if (this.videoKnownSupportedFormats != null && this.videoKnownSupportedFormats.Any() &&
 
-                //		// here it means we got a new video fromat so we need to restart the player
-                //		this.videoKnownSupportedFormats.Select(x => x.GetId()).Except(previousSupportedFormats.Select(y => y.GetId())).Any())
-                //	{
-                //		// we restart the player
-                //		this.audioVideoFramePlayer?.ClearAsync().ForgetAndLogExceptionAsync(this.logger);
+                        // here it means we got a new video fromat so we need to restart the player
+                        this.videoKnownSupportedFormats.Select(x => x.GetId()).Except(previousSupportedFormats.Select(y => y.GetId())).Any())
+                    {
+                        // we restart the player
+                        this.audioVideoFramePlayer?.ClearAsync().ForgetAndLogExceptionAsync(this.logger);
 
-                //		this.logger.Info($"[VideoSendStatusChangedEventArgs(MediaSendStatus=<{e.MediaSendStatus}> enqueuing new formats: {string.Join(";", this.videoKnownSupportedFormats)}]");
+                        this.logger.Info($"[VideoSendStatusChangedEventArgs(MediaSendStatus=<{e.MediaSendStatus}> enqueuing new formats: {string.Join(";", this.videoKnownSupportedFormats)}]");
 
-                //		// Create the AV buffers
-                //		var currentTick = DateTime.Now.Ticks;
-                //		this.CreateAVBuffers(currentTick, replayed: false);
+                        // Create the AV buffers
+                        var currentTick = DateTime.Now.Ticks;
+                        this.CreateAVBuffers(currentTick, replayed: false);
 
-                //		this.audioVideoFramePlayer?.EnqueueBuffersAsync(this.audioMediaBuffers, this.videoMediaBuffers).ForgetAndLogExceptionAsync(this.logger);
-                //	}
-                //}
+                        this.audioVideoFramePlayer?.EnqueueBuffersAsync(this.audioMediaBuffers, this.videoMediaBuffers).ForgetAndLogExceptionAsync(this.logger);
+                    }
+                }
             }
             else if (e.MediaSendStatus == MediaSendStatus.Inactive)
             {
-                //if (this.videoSendStatusActive.Task.IsCompleted && this.audioVideoFramePlayer != null)
-                //{
-                //	this.audioVideoFramePlayer?.ClearAsync().ForgetAndLogExceptionAsync(this.logger);
-                //}
+                if (this.videoSendStatusActive.Task.IsCompleted && this.audioVideoFramePlayer != null)
+                {
+                    this.audioVideoFramePlayer?.ClearAsync().ForgetAndLogExceptionAsync(this.logger);
+                }
             }
         }
 
@@ -255,8 +271,7 @@ namespace RecordingBot.Services.Bot
         /// <param name="e">Event args specifying the socket id, media type and video formats for which key frame is being requested.</param>
         private void OnVideoKeyFrameNeeded(object sender, VideoKeyFrameNeededEventArgs e)
         {
-            this.logger.Info($"[VideoKeyFrameNeededEventArgs(MediaType=<{{e.MediaType}}>;SocketId=<{{e.SocketId}}>" +
-                             $"VideoFormats=<{string.Join(";", e.VideoFormats.ToList())}>] calling RequestKeyFrame on the videoSocket");
+            this.logger.Info($"[VideoKeyFrameNeededEventArgs(MediaType=<{{e.MediaType}}>;SocketId=<{{e.SocketId}}>VideoFormats=<{string.Join(";", e.VideoFormats.ToList())}>] calling RequestKeyFrame on the videoSocket");
         }
 
         /// <summary>
@@ -339,6 +354,125 @@ namespace RecordingBot.Services.Bot
             if (mediaType != MediaType.Vbss && mediaType != MediaType.Video)
             {
                 throw new ArgumentOutOfRangeException($"Invalid mediaType: {mediaType}");
+            }
+        }
+
+        /// <summary>
+        /// Performs action when the vbss socket send status changed event is received.
+        /// </summary>
+        /// <param name="sender">
+        /// The sender.
+        /// </param>
+        /// <param name="e">
+        /// The video send status changed event arguments.
+        /// </param>
+        private void OnVbssSocketSendStatusChanged(object sender, VideoSendStatusChangedEventArgs e)
+        {
+            this.logger.Info($"[VbssSendStatusChangedEventArgs(MediaSendStatus=<{e.MediaSendStatus}>]");
+
+            if (e.MediaSendStatus == MediaSendStatus.Active)
+            {
+                this.logger.Info($"[VbssSendStatusChangedEventArgs(MediaSendStatus=<{e.MediaSendStatus}>;PreferredVideoSourceFormat=<{string.Join(";", e.PreferredEncodedVideoSourceFormats.ToList())}>]");
+
+                var previousSupportedFormats = (this.vbssKnownSupportedFormats != null && this.vbssKnownSupportedFormats.Any()) ? this.vbssKnownSupportedFormats :
+                   new List<VideoFormat>();
+                this.vbssKnownSupportedFormats = e.PreferredEncodedVideoSourceFormats.ToList();
+
+                if (this.vbssFramePlayer == null)
+                {
+                    this.CreateVbssFramePlayer();
+                }
+
+                // when this is false it means that we have received a new event with different videoFormats
+                // the behavior for this bot is to clean up the previous enqueued media and push the new formats,
+                // starting from beginning
+                else
+                {
+                    // we restart the player
+                    this.vbssFramePlayer?.ClearAsync().ForgetAndLogExceptionAsync(this.logger);
+                }
+
+                // enqueue video buffers
+                this.logger.Info($"[VbssSendStatusChangedEventArgs(MediaSendStatus=<{e.MediaSendStatus}> enqueuing new formats: {string.Join(";", this.vbssKnownSupportedFormats)}]");
+
+                // Create the video buffers
+                this.vbssMediaBuffers = MediaBuffers.CreateVideoMediaBuffers(DateTime.Now.Ticks, this.vbssKnownSupportedFormats, true, this.logger);
+                this.vbssFramePlayer?.EnqueueBuffersAsync(new List<AudioMediaBuffer>(), this.vbssMediaBuffers).ForgetAndLogExceptionAsync(this.logger);
+            }
+            else if (e.MediaSendStatus == MediaSendStatus.Inactive)
+            {
+                this.vbssFramePlayer?.ClearAsync().ForgetAndLogExceptionAsync(this.logger);
+            }
+        }
+
+        /// <summary>
+        /// Callback handler for the lowOnFrames event that the vbss frame player will raise when there are no more frames to stream.
+        /// The behavior is to enqueue more frames.
+        /// </summary>
+        /// <param name="sender">The vbss frame player.</param>
+        /// <param name="e">LowOnframes eventArgs.</param>
+        private void OnVbssPlayerLowOnFrames(object sender, LowOnFramesEventArgs e)
+        {
+            if (this.shutdown != 1)
+            {
+                this.logger.Info($"Low on frames event raised for the vbss player, remaining lenght is {e.RemainingMediaLengthInMS} ms");
+
+                // Create the video buffers
+                this.vbssMediaBuffers = MediaBuffers.CreateVideoMediaBuffers(DateTime.Now.Ticks, this.vbssKnownSupportedFormats, true, this.logger);
+                this.vbssFramePlayer?.EnqueueBuffersAsync(new List<AudioMediaBuffer>(), this.vbssMediaBuffers).ForgetAndLogExceptionAsync(this.logger);
+                this.logger.Info("enqueued more frames in the vbssFramePlayer");
+            }
+        }
+
+        /// <summary>
+        /// Create audio video buffers.
+        /// </summary>
+        /// <param name="referenceTick">Current clock tick.</param>
+        /// <param name="replayed">If frame is replayed.</param>
+        private void CreateAVBuffers(long referenceTick, bool replayed)
+        {
+            this.logger.Info("Creating AudioVideoBuffers");
+
+            lock (this.mLock)
+            {
+                this.videoMediaBuffers = MediaBuffers.CreateVideoMediaBuffers(
+                    referenceTick,
+                    this.videoKnownSupportedFormats,
+                    replayed,
+                    this.logger);
+
+                this.audioMediaBuffers = MediaBuffers.CreateAudioMediaBuffers(
+                    referenceTick,
+                    replayed,
+                    this.logger);
+
+                // update the tick for next iteration
+                this.audioTick = this.audioMediaBuffers.Last().Timestamp;
+                this.videoTick = this.videoMediaBuffers.Last().Timestamp;
+                this.mediaTick = Math.Max(this.audioTick, this.videoTick);
+            }
+        }
+
+        /// <summary>
+        /// Creates the vbss player that will stream the video buffers for the sharer.
+        /// </summary>
+        private void CreateVbssFramePlayer()
+        {
+            try
+            {
+                this.logger.Info("Creating the vbss FramePlayer");
+                this.audioVideoFramePlayerSettings =
+                    new AudioVideoFramePlayerSettings(new AudioSettings(20), new VideoSettings(), 1000);
+                this.vbssFramePlayer = new AudioVideoFramePlayer(
+                    null,
+                    (VideoSocket)this.vbssSocket,
+                    this.audioVideoFramePlayerSettings);
+
+                this.vbssFramePlayer.LowOnFrames += this.OnVbssPlayerLowOnFrames;
+            }
+            catch (Exception ex)
+            {
+                this.logger.Error(ex, $"Failed to create the vbssFramePlayer with exception {ex}");
             }
         }
     }
