@@ -44,14 +44,12 @@ namespace RecordingBot.Services.Bot
         /// The audio socket
         /// </summary>
         private readonly IAudioSocket _audioSocket;
-        /// <summary>
-        /// The media stream
-        /// </summary>
-        private readonly IVideoSocket _videoSocket;
+
         /// <summary>
         /// The video socket
         /// </summary>
         private readonly IMediaStream _mediaStream;
+
         /// <summary>
         /// The event publisher
         /// </summary>

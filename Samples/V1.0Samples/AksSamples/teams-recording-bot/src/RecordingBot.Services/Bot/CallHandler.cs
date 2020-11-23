@@ -346,7 +346,7 @@ namespace RecordingBot.Services.Bot
         /// </summary>
         /// <param name="sender">Participants collection.</param>
         /// <param name="args">Event args containing added and removed participants.</param>
-        private void ParticipantsOnUpdated(IParticipantCollection sender, CollectionEventArgs<IParticipant> args)
+        public void ParticipantsOnUpdated(IParticipantCollection sender, CollectionEventArgs<IParticipant> args)
         {
             if (_settings.CaptureEvents)
             {
@@ -418,9 +418,17 @@ namespace RecordingBot.Services.Bot
         private string updateParticipant(List<IParticipant> participants, IParticipant participant, bool added, string participantDisplayName = "")
         {
             if (added)
-                participants.Add(participant);
+            {
+                if (!participants.Contains(participant))
+                {
+                    participants.Add(participant);
+                }
+            }
             else
+            {
                 participants.Remove(participant);
+            }
+                
             return createParticipantUpdateJson(participant.Id, participantDisplayName);
         }
 
