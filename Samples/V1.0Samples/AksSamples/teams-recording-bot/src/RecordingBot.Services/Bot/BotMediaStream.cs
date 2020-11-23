@@ -136,6 +136,7 @@ namespace RecordingBot.Services.Bot
             if (this.mainVideoSocket != null)
             {
                 this.mainVideoSocket.VideoSendStatusChanged += this.OnVideoSendStatusChanged;
+                this.mainVideoSocket.VideoReceiveStatusChanged += this.OnVideoReceivedStatusChanged;
                 this.mainVideoSocket.VideoKeyFrameNeeded += this.OnVideoKeyFrameNeeded;
             }
 
@@ -260,6 +261,11 @@ namespace RecordingBot.Services.Bot
                     this.audioVideoFramePlayer?.ClearAsync().ForgetAndLogExceptionAsync(this.logger);
                 }
             }
+        }
+
+        private void OnVideoReceivedStatusChanged(object sender, VideoReceiveStatusChangedEventArgs e)
+        {
+            Console.WriteLine("test");
         }
 
         /// <summary>

@@ -51,6 +51,11 @@ namespace RecordingBot.Services.Bot
         public BotMediaStream BotMediaStream { get; private set; }
 
         /// <summary>
+        /// MSI when there is no dominant speaker.
+        /// </summary>
+        public const uint DominantSpeakerNone = DominantSpeakerChangedEventArgs.None;
+
+        /// <summary>
         /// The recording status index
         /// </summary>
         private int recordingStatusIndex = -1;
@@ -106,8 +111,13 @@ namespace RecordingBot.Services.Bot
             this.Call.OnUpdated += this.CallOnUpdated;
             this.Call.Participants.OnUpdated += this.ParticipantsOnUpdated;
 
+            // subscribe to dominant speaker event on the audioSocket
+            this.Call.GetLocalMediaSession().AudioSocket.DominantSpeakerChanged += this.OnDominantSpeakerChanged;
+
             // subscribe to the VideoMediaReceived event on the main video socket
             this.Call.GetLocalMediaSession().VideoSockets.FirstOrDefault().VideoMediaReceived += this.OnVideoMediaReceived;
+
+            this.Call.GetLocalMediaSession().VideoSockets.FirstOrDefault().VideoReceiveStatusChanged += this.OnVideoReceiveStatusChange;
 
             // susbscribe to the participants updates, this will inform the bot if a particpant left/joined the conference
             this.Call.Participants.OnUpdated += this.ParticipantsOnUpdated;
@@ -126,9 +136,51 @@ namespace RecordingBot.Services.Bot
             }
         }
 
+        private void OnVideoReceiveStatusChange(object sender, VideoReceiveStatusChangedEventArgs e)
+        {
+            Console.WriteLine("test");
+        }
+
+        /// <summary>
+        /// Listen for dominant speaker changes in the conference.
+        /// </summary>
+        /// <param name="sender">
+        /// The sender.
+        /// </param>
+        /// <param name="e">
+        /// The dominant speaker changed event arguments.
+        /// </param>
+        private void OnDominantSpeakerChanged(object sender, DominantSpeakerChangedEventArgs e)
+        {
+            this.GraphLogger.Info($"[{this.Call.Id}:OnDominantSpeakerChanged(DominantSpeaker={e.CurrentDominantSpeaker})]");
+
+            if (e.CurrentDominantSpeaker != DominantSpeakerNone)
+            {
+                IParticipant participant = this.GetParticipantFromMSI(e.CurrentDominantSpeaker);
+                var participantDetails = participant?.Resource?.Info?.Identity?.User;
+                if (participantDetails != null)
+                {
+                    // we want to force the video subscription on dominant speaker events
+                    this.SubscribeToParticipantVideo(participant, forceSubscribe: true);
+                }
+            }
+        }
+
         private void OnVideoMediaReceived(object sender, VideoMediaReceivedEventArgs e)
         {
             e.Buffer.Dispose();
+        }
+
+        /// <summary>
+        /// Gets the participant with the corresponding MSI.
+        /// </summary>
+        /// <param name="msi">media stream id.</param>
+        /// <returns>
+        /// The <see cref="IParticipant"/>.
+        /// </returns>
+        private IParticipant GetParticipantFromMSI(uint msi)
+        {
+            return this.Call.Participants.SingleOrDefault(x => x.Resource.IsInLobby == false && x.Resource.MediaStreams.Any(y => y.SourceId == msi.ToString()));
         }
 
         /// <summary>
@@ -245,8 +297,17 @@ namespace RecordingBot.Services.Bot
 
             base.Dispose(disposing);
             _isDisposed = true;
+
+            this.Call.GetLocalMediaSession().AudioSocket.DominantSpeakerChanged -= this.OnDominantSpeakerChanged;
+            this.Call.GetLocalMediaSession().VideoSockets.FirstOrDefault().VideoMediaReceived -= this.OnVideoMediaReceived;
+
             this.Call.OnUpdated -= this.CallOnUpdated;
             this.Call.Participants.OnUpdated -= this.ParticipantsOnUpdated;
+
+            foreach (var participant in this.Call.Participants)
+            {
+                participant.OnUpdated -= this.OnParticipantUpdated;
+            }
 
             this.BotMediaStream?.Dispose();
 
