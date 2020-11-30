@@ -122,6 +122,12 @@ namespace RecordingBot.Services.Bot
             // attach the botMediaStream
             this.BotMediaStream = new BotMediaStream(this.Call.GetLocalMediaSession(), this.Call.Id, this.GraphLogger, eventPublisher, _settings);
 
+            if (_settings.CaptureEvents)
+            {
+                var path = Path.Combine(Path.GetTempPath(), BotConstants.DefaultOutputFolder, _settings.EventsFolder, statefulCall.GetLocalMediaSession().MediaSessionId.ToString(), "participants");
+                _capture = new CaptureEvents(path);
+            }
+
             // initialize the timer
             Timer timer = new Timer(1000 * 60); // every 60 seconds
             timer.AutoReset = true;
@@ -374,10 +380,12 @@ namespace RecordingBot.Services.Bot
                     var status = Enum.GetName(typeof(RecordingStatus), newStatus);
                     _eventPublisher.Publish("CallRecordingFlip", $"Call.Id: {Call.Id} status changed to {status}");
 
-					// NOTE: if your implementation supports stopping the recording during the call, you can call the same method above with RecordingStatus.NotRecording
-					//await source.UpdateRecordingStatusAsync(newStatus).ConfigureAwait(false);
+                    // NOTE: if your implementation supports stopping the recording during the call, you can call the same method above with RecordingStatus.NotRecording
+                    await source
+                        .UpdateRecordingStatusAsync(newStatus)
+                        .ConfigureAwait(false);
 
-					this.recordingStatusIndex = recordingIndex;
+                    this.recordingStatusIndex = recordingIndex;
                 }
                 catch (Exception exc)
                 {
@@ -435,6 +443,11 @@ namespace RecordingBot.Services.Bot
         /// <param name="args">Event args containing added and removed participants.</param>
         private void ParticipantsOnUpdated(IParticipantCollection sender, CollectionEventArgs<IParticipant> args)
         {
+            if (_settings.CaptureEvents)
+            {
+                _capture?.Append(args);
+            }
+
             foreach (var participant in args.AddedResources)
             {
                 // todo remove the cast with the new graph implementation,
@@ -472,7 +485,5 @@ namespace RecordingBot.Services.Bot
         {
             this.SubscribeToParticipantVideo(sender, forceSubscribe: false);
         }
-
-
     }
 }
