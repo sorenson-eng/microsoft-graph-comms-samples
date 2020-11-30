@@ -91,6 +91,8 @@ namespace RecordingBot.Services.Bot
         // This dictionnary helps maintaining a mapping of the sockets subscriptions
         private readonly ConcurrentDictionary<uint, uint> msiToSocketIdMapping = new ConcurrentDictionary<uint, uint>();
 
+        private readonly Timer recordingStatusFlipTimer;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="CallHandler" /> class.
         /// </summary>
@@ -109,36 +111,22 @@ namespace RecordingBot.Services.Bot
 
             this.Call = statefulCall;
             this.Call.OnUpdated += this.CallOnUpdated;
-            this.Call.Participants.OnUpdated += this.ParticipantsOnUpdated;
 
             // subscribe to dominant speaker event on the audioSocket
-            this.Call.GetLocalMediaSession().AudioSocket.DominantSpeakerChanged += this.OnDominantSpeakerChanged;
-
-            // subscribe to the VideoMediaReceived event on the main video socket
-            this.Call.GetLocalMediaSession().VideoSockets.FirstOrDefault().VideoMediaReceived += this.OnVideoMediaReceived;
-
-            this.Call.GetLocalMediaSession().VideoSockets.FirstOrDefault().VideoReceiveStatusChanged += this.OnVideoReceiveStatusChange;
+            var audioSocket = this.Call.GetLocalMediaSession().AudioSocket;
+            audioSocket.DominantSpeakerChanged += this.OnDominantSpeakerChanged;
 
             // susbscribe to the participants updates, this will inform the bot if a particpant left/joined the conference
             this.Call.Participants.OnUpdated += this.ParticipantsOnUpdated;
 
-            foreach (var videoSocket in this.Call.GetLocalMediaSession().VideoSockets)
-            {
-                this.availableSocketIds.Add((uint)videoSocket.SocketId);
-            }
-
+            // attach the botMediaStream
             this.BotMediaStream = new BotMediaStream(this.Call.GetLocalMediaSession(), this.Call.Id, this.GraphLogger, eventPublisher, _settings);
 
-            if (_settings.CaptureEvents)
-            {
-                var path = Path.Combine(Path.GetTempPath(), BotConstants.DefaultOutputFolder, _settings.EventsFolder, statefulCall.GetLocalMediaSession().MediaSessionId.ToString(), "participants");
-                _capture = new CaptureEvents(path);
-            }
-        }
-
-        private void OnVideoReceiveStatusChange(object sender, VideoReceiveStatusChangedEventArgs e)
-        {
-            Console.WriteLine("test");
+            // initialize the timer
+            Timer timer = new Timer(1000 * 60); // every 60 seconds
+            timer.AutoReset = true;
+            timer.Elapsed += this.OnRecordingStatusFlip;
+            this.recordingStatusFlipTimer = timer;
         }
 
         /// <summary>
@@ -164,11 +152,6 @@ namespace RecordingBot.Services.Bot
                     this.SubscribeToParticipantVideo(participant, forceSubscribe: true);
                 }
             }
-        }
-
-        private void OnVideoMediaReceived(object sender, VideoMediaReceivedEventArgs e)
-        {
-            e.Buffer.Dispose();
         }
 
         /// <summary>
@@ -298,8 +281,8 @@ namespace RecordingBot.Services.Bot
             base.Dispose(disposing);
             _isDisposed = true;
 
-            this.Call.GetLocalMediaSession().AudioSocket.DominantSpeakerChanged -= this.OnDominantSpeakerChanged;
-            this.Call.GetLocalMediaSession().VideoSockets.FirstOrDefault().VideoMediaReceived -= this.OnVideoMediaReceived;
+            var audioSocket = this.Call.GetLocalMediaSession().AudioSocket;
+            audioSocket.DominantSpeakerChanged -= this.OnDominantSpeakerChanged;
 
             this.Call.OnUpdated -= this.CallOnUpdated;
             this.Call.Participants.OnUpdated -= this.ParticipantsOnUpdated;
@@ -309,10 +292,55 @@ namespace RecordingBot.Services.Bot
                 participant.OnUpdated -= this.OnParticipantUpdated;
             }
 
+            this.recordingStatusFlipTimer.Enabled = false;
+            this.recordingStatusFlipTimer.Elapsed -= this.OnRecordingStatusFlip;
+            this.BotMediaStream.Dispose();
+
             this.BotMediaStream?.Dispose();
 
             // Event - Dispose of the call completed ok
             _eventPublisher.Publish("CallDisposedOK", $"Call.Id: {this.Call.Id}");
+        }
+
+        /// <summary>
+        /// Called when recording status flip timer fires.
+        /// </summary>
+        /// <param name="source">The source.</param>
+        /// <param name="e">The <see cref="ElapsedEventArgs" /> instance containing the event data.</param>
+        private void OnRecordingStatusFlip(object source, ElapsedEventArgs e)
+        {
+            _ = Task.Run(async () =>
+            {
+                var recordingStatus = new[] { RecordingStatus.Recording, RecordingStatus.NotRecording, RecordingStatus.Failed };
+                var recordingIndex = this.recordingStatusIndex + 1;
+                if (recordingIndex >= recordingStatus.Length)
+                {
+                    var recordedParticipantId = this.Call.Resource.IncomingContext.ObservedParticipantId;
+
+                    this.GraphLogger.Warn($"We've rolled through all the status'... removing participant {recordedParticipantId}");
+                    var recordedParticipant = this.Call.Participants[recordedParticipantId];
+                    await recordedParticipant.DeleteAsync().ConfigureAwait(false);
+                    return;
+                }
+
+                var newStatus = recordingStatus[recordingIndex];
+
+                this.GraphLogger.Info($"Flipping recording status to {newStatus}");
+
+                try
+                {
+                    // NOTE: if your implementation supports stopping the recording during the call, you can call the same method above with RecordingStatus.NotRecording
+                    await this.Call
+                        .UpdateRecordingStatusAsync(newStatus)
+                        .ConfigureAwait(false);
+
+                    this.recordingStatusIndex = recordingIndex;
+                }
+                catch (Exception exc)
+                {
+                    this.GraphLogger.Error(exc, $"Failed to flip the recording status to {newStatus}");
+                }
+            }).ForgetAndLogExceptionAsync(this.GraphLogger);
         }
 
         /// <summary>
@@ -346,12 +374,10 @@ namespace RecordingBot.Services.Bot
                     var status = Enum.GetName(typeof(RecordingStatus), newStatus);
                     _eventPublisher.Publish("CallRecordingFlip", $"Call.Id: {Call.Id} status changed to {status}");
 
-                    // NOTE: if your implementation supports stopping the recording during the call, you can call the same method above with RecordingStatus.NotRecording
-                    await source
-                        .UpdateRecordingStatusAsync(newStatus)
-                        .ConfigureAwait(false);
+					// NOTE: if your implementation supports stopping the recording during the call, you can call the same method above with RecordingStatus.NotRecording
+					//await source.UpdateRecordingStatusAsync(newStatus).ConfigureAwait(false);
 
-                    this.recordingStatusIndex = recordingIndex;
+					this.recordingStatusIndex = recordingIndex;
                 }
                 catch (Exception exc)
                 {
@@ -407,15 +433,8 @@ namespace RecordingBot.Services.Bot
         /// </summary>
         /// <param name="sender">Participants collection.</param>
         /// <param name="args">Event args containing added and removed participants.</param>
-        public void ParticipantsOnUpdated(IParticipantCollection sender, CollectionEventArgs<IParticipant> args)
+        private void ParticipantsOnUpdated(IParticipantCollection sender, CollectionEventArgs<IParticipant> args)
         {
-            if (_settings.CaptureEvents)
-            {
-                _capture?.Append(args);
-            }
-            UpdateParticipants(args.AddedResources);
-            UpdateParticipants(args.RemovedResources, false);
-
             foreach (var participant in args.AddedResources)
             {
                 // todo remove the cast with the new graph implementation,
@@ -454,92 +473,6 @@ namespace RecordingBot.Services.Bot
             this.SubscribeToParticipantVideo(sender, forceSubscribe: false);
         }
 
-        /// <summary>
-        /// Creates the participant update json.
-        /// </summary>
-        /// <param name="participantId">The participant identifier.</param>
-        /// <param name="participantDisplayName">Display name of the participant.</param>
-        /// <returns>System.String.</returns>
-        private string CreateParticipantUpdateJson(string participantId, string participantDisplayName = "")
-        {
-            if (participantDisplayName.Length == 0)
-                return "{" + String.Format($"\"Id\": \"{participantId}\"") + "}";
-            else
-                return "{" + String.Format($"\"Id\": \"{participantId}\", \"DisplayName\": \"{participantDisplayName}\"") + "}";
-        }
 
-        /// <summary>
-        /// Helper for UpdateParticipants
-        /// </summary>
-        /// <param name="participants">The participants.</param>
-        /// <param name="participant">The participant.</param>
-        /// <param name="added">if set to <c>true</c> [added].</param>
-        /// <param name="participantDisplayName">Display name of the participant.</param>
-        /// <returns>System.String.</returns>
-        private string UpdateParticipant(List<IParticipant> participants, IParticipant participant, bool added, string participantDisplayName = "")
-        {
-            if (added)
-            {
-                if (!participants.Contains(participant))
-                {
-                    participants.Add(participant);
-                }
-            }
-            else
-            {
-                participants.Remove(participant);
-            }
-                
-            return CreateParticipantUpdateJson(participant.Id, participantDisplayName);
-        }
-
-        /// <summary>
-        /// Updates the participants.
-        /// </summary>
-        /// <param name="eventArgs">The event arguments.</param>
-        /// <param name="added">if set to <c>true</c> [added].</param>
-        private void UpdateParticipants(ICollection<IParticipant> eventArgs, bool added = true)
-        {
-            foreach (var participant in eventArgs)
-            {
-                var json = string.Empty;
-
-                // todo remove the cast with the new graph implementation,
-                // for now we want the bot to only subscribe to "real" participants
-                var participantDetails = participant.Resource.Info.Identity.User;
-
-                if (participantDetails != null)
-                {
-                    json = UpdateParticipant(this.BotMediaStream.participants, participant, added, participantDetails.DisplayName);
-                }
-                else if (participant.Resource.Info.Identity.AdditionalData?.Count > 0)
-                {
-                    if (CheckParticipantIsUsable(participant))
-                    {
-                        json = UpdateParticipant(this.BotMediaStream.participants, participant, added);
-                    }
-                }
-
-                if (json.Length > 0)
-                    if (added)
-                        _eventPublisher.Publish("CallParticipantAdded", json);
-                    else
-                        _eventPublisher.Publish("CallParticipantRemoved", json);
-            }
-        }
-
-        /// <summary>
-        /// Checks the participant is usable.
-        /// </summary>
-        /// <param name="p">The p.</param>
-        /// <returns><c>true</c> if XXXX, <c>false</c> otherwise.</returns>
-        private bool CheckParticipantIsUsable(IParticipant p)
-        {
-            foreach (var i in p.Resource.Info.Identity.AdditionalData)
-                if (i.Key != "applicationInstance" && i.Value is Identity)
-                    return true;
-
-            return false;
-        }
     }
 }
