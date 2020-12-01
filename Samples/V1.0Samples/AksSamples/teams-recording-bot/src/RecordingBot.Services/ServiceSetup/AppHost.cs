@@ -131,17 +131,17 @@ namespace RecordingBot.Services.ServiceSetup
                 //    _logger.Info("Listening on: {url}", url);
                 //}
 
-                List<string> urls = new List<string>
-                {
-                    "http://+:9441",
-                    "http://+:9441/0",
-                };
-                foreach (string url in urls)
-                {
-                    callStartOptions.Urls.Add(url);
-                }
+                //List<string> urls = new List<string>
+                //{
+                //    "http://+:9441",
+                //    "http://+:9441/0",
+                //};
+                //foreach (string url in urls)
+                //{
+                //    callStartOptions.Urls.Add(url);
+                //}
 
-                //callStartOptions.Port = 9441;
+                callStartOptions.Port = 9441;
 
                 _callHttpServer = WebApp.Start(
                     callStartOptions,
