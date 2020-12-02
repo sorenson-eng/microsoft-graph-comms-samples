@@ -125,23 +125,11 @@ namespace RecordingBot.Services.ServiceSetup
 
                 var callStartOptions = new StartOptions();
 
-                //foreach (var url in ((AzureSettings)_settings).CallControlListeningUrls)
-                //{
-                //    callStartOptions.Urls.Add(url);
-                //    _logger.Info("Listening on: {url}", url);
-                //}
-
-                //List<string> urls = new List<string>
-                //{
-                //    "http://+:9441",
-                //    "http://+:9441/0",
-                //};
-                //foreach (string url in urls)
-                //{
-                //    callStartOptions.Urls.Add(url);
-                //}
-
-                callStartOptions.Port = 9441;
+                foreach (var url in ((AzureSettings)_settings).CallControlListeningUrls)
+                {
+                    callStartOptions.Urls.Add(url);
+                    _logger.Info("Listening on: {url}", url);
+                }
 
                 _callHttpServer = WebApp.Start(
                     callStartOptions,
