@@ -49,9 +49,9 @@ elif [[ "$OSTYPE" == "msys"* ]]; then
         certbot certonly --config config.ini --standalone --preferred-challenges http
         openssl pkcs12 -export \
             -out $ROOT/$CERTNAME \
-            -inkey $CERTBOTDIR/privkey1.pem \
-            -in $CERTBOTDIR/cert1.pem \
-            -certfile $CERTBOTDIR/chain1.pem \
+            -inkey $CERTBOTDIR/privkey.pem \
+            -in $CERTBOTDIR/cert.pem \
+            -certfile $CERTBOTDIR/chain.pem \
             -passout pass:$CERTIFICATEPASSWORD
         echo "A new certificate has been created and found here: $ROOT/$CERTNAME"
     fi
